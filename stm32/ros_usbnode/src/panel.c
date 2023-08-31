@@ -84,21 +84,21 @@ void PANEL_Init(void)
     // enable port and usart clocks
     PANEL_USART_GPIO_CLK_ENABLE();
 
+#if BOARD_YARDFORCE500_VARIANT_ORIG
     // RX
     GPIO_InitStruct.Pin = PANEL_USART_RX_PIN;
     GPIO_InitStruct.Mode = GPIO_MODE_INPUT;
     GPIO_InitStruct.Pull = GPIO_NOPULL;
     GPIO_InitStruct.Speed = GPIO_SPEED_HIGH;
-#if BOARD_YARDFORCE500_VARIANT_B
-    GPIO_InitStruct.Alternate = GPIO_AF7_USART1;
-#endif
     HAL_GPIO_Init(PANEL_USART_RX_PORT, &GPIO_InitStruct);
+#endif
 
     // TX
     GPIO_InitStruct.Pin = PANEL_USART_TX_PIN;
     GPIO_InitStruct.Mode = GPIO_MODE_AF_PP;
     GPIO_InitStruct.Speed = GPIO_SPEED_HIGH;
 #if BOARD_YARDFORCE500_VARIANT_B
+    GPIO_InitStruct.Pin |= PANEL_USART_RX_PIN;
     GPIO_InitStruct.Alternate = GPIO_AF7_USART1;
 #endif
     HAL_GPIO_Init(PANEL_USART_TX_PORT, &GPIO_InitStruct);
@@ -112,9 +112,13 @@ void PANEL_Init(void)
     PANEL_USART_Handler.Init.Parity = UART_PARITY_NONE;       // No parity bit
     PANEL_USART_Handler.Init.HwFlowCtl = UART_HWCONTROL_NONE; // No hardware flow control
     PANEL_USART_Handler.Init.Mode = USART_MODE_TX_RX;         // Transceiver mode
-
-    HAL_UART_Init(&PANEL_USART_Handler); // HAL_UART_Init() Will enable UART1
-
+#if BOARD_YARDFORCE500_VARIANT_B
+    PANEL_USART_Handler.Init.OverSampling = UART_OVERSAMPLING_16;
+#endif
+    if (HAL_UART_Init(&PANEL_USART_Handler) != HAL_OK) // HAL_UART_Init() Will enable UART1
+    {
+      Error_Handler();
+    }
     
     /* UART1 DMA Init */
     /* UART1_RX Init */

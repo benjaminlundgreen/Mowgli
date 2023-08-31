@@ -111,23 +111,21 @@ void BLADEMOTOR_Init(void)
 	__HAL_RCC_USART6_CLK_ENABLE();
 #endif
     
+#if BOARD_YARDFORCE500_VARIANT_ORIG
     // RX
-    //GPIO_InitStruct.Pin = BLADEMOTOR_USART_RX_PIN;
-    GPIO_InitStruct.Pin = BLADEMOTOR_USART_TX_PIN|BLADEMOTOR_USART_RX_PIN;
+    GPIO_InitStruct.Pin = BLADEMOTOR_USART_RX_PIN;
     GPIO_InitStruct.Mode = GPIO_MODE_INPUT;
     GPIO_InitStruct.Pull = GPIO_NOPULL;
     GPIO_InitStruct.Speed = GPIO_SPEED_HIGH;
-#if BOARD_YARDFORCE500_VARIANT_B
-    GPIO_InitStruct.Alternate = GPIO_AF8_USART6;
-#endif
     HAL_GPIO_Init(BLADEMOTOR_USART_RX_PORT, &GPIO_InitStruct);
+#endif
 
     // TX
-    //GPIO_InitStruct.Pin = BLADEMOTOR_USART_TX_PIN;
-    GPIO_InitStruct.Pin = BLADEMOTOR_USART_TX_PIN|BLADEMOTOR_USART_RX_PIN;
+    GPIO_InitStruct.Pin = BLADEMOTOR_USART_TX_PIN;
     GPIO_InitStruct.Mode = GPIO_MODE_AF_PP;
     GPIO_InitStruct.Speed = GPIO_SPEED_HIGH;
 #if BOARD_YARDFORCE500_VARIANT_B
+    GPIO_InitStruct.Pin |= BLADEMOTOR_USART_RX_PIN;
     GPIO_InitStruct.Alternate = GPIO_AF8_USART6;
 #endif
     HAL_GPIO_Init(BLADEMOTOR_USART_TX_PORT, &GPIO_InitStruct);    
@@ -139,8 +137,14 @@ void BLADEMOTOR_Init(void)
     BLADEMOTOR_USART_Handler.Init.Parity = UART_PARITY_NONE;       // No parity bit
     BLADEMOTOR_USART_Handler.Init.HwFlowCtl = UART_HWCONTROL_NONE; // No hardware flow control
     BLADEMOTOR_USART_Handler.Init.Mode = USART_MODE_TX_RX;         // Transceiver mode
-    
-    HAL_UART_Init(&BLADEMOTOR_USART_Handler); 
+#if BOARD_YARDFORCE500_VARIANT_B
+    BLADEMOTOR_USART_Handler.Init.OverSampling = UART_OVERSAMPLING_16;
+#endif
+
+    if (HAL_UART_Init(&BLADEMOTOR_USART_Handler) != HAL_OK)
+    {
+      Error_Handler();
+    }
 
     DB_TRACE(" * Blade Motor UART initialized\r\n");
 
