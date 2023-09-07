@@ -73,6 +73,7 @@ extern DMA_HandleTypeDef hdma_usart2_tx;
 extern DMA_HandleTypeDef hdma_uart_blade_tx;
 extern DMA_HandleTypeDef hdma_uart_blade_rx;
 extern DMA_HandleTypeDef hdma_adc;
+extern DMA_HandleTypeDef hdma_adc1;
 
 extern ADC_HandleTypeDef ADC_Charging_Handle;
 
@@ -275,6 +276,19 @@ void USART6_IRQHandler(void)
   /* USER CODE END USART6_IRQn 1 */
 }
 
+/**
+  * @brief This function handles DMA2 stream0 global interrupt.
+  */
+void DMA2_Stream0_IRQHandler(void)
+{
+  /* USER CODE BEGIN DMA2_Stream0_IRQn 0 */
+
+  /* USER CODE END DMA2_Stream0_IRQn 0 */
+  HAL_DMA_IRQHandler(&hdma_adc1);
+  /* USER CODE BEGIN DMA2_Stream0_IRQn 1 */
+
+  /* USER CODE END DMA2_Stream0_IRQn 1 */
+}
 
 /**
   * @brief This function handles DMA2 stream1 global interrupt.
