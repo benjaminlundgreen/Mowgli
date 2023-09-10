@@ -36,7 +36,8 @@ typedef enum
     ADC_CHARGING_CHANNEL_CHARGEVOLTAGE,
     ADC_CHARGING_CHANNEL_BATTERYVOLTAGE,
     ADC_CHARGING_CHANNEL_CHARGERINPUTVOLTAGE,
-    ADC_CHARGING_CHANNEL_NTC,
+    ADC_CHARGING_CHANNEL_BATTERY_NTC,
+    ADC_CHARGING_CHANNEL_BLADE_NTC,
     ADC_CHARGING_CHANNEL_MAX,
 } ADC_Charging_channelSelection_e;
 
@@ -54,15 +55,18 @@ volatile uint16_t adc_u16BatteryVoltage       = 0;
 volatile uint16_t adc_u16Current              = 0;
 volatile uint16_t adc_u16ChargerVoltage       = 0;
 volatile uint16_t adc_u16ChargerInputVoltage  = 0;
-volatile uint16_t adc_u16Input_NTC            = 0;
+volatile uint16_t adc_u16BatteryNTC           = 0;
+volatile uint16_t adc_u16BladeNTC             = 0;
 volatile uint16_t adc_inputDmaBuf[ADC_CHARGING_CHANNEL_MAX] = {0};
 
 float battery_voltage;
 float charge_voltage;
 float current;
 float current_without_offset;
-float ntc_voltage;
+float battery_ntc_voltage;
+float blade_ntc_voltage;
 float blade_temperature;
+float battery_temperature;
 float chargerInputVoltage;
 
 union FtoU ampere_acc;
@@ -103,7 +107,7 @@ void TIM2_Init(void)
     TIM2_Handle.Instance = TIM2;
     TIM2_Handle.Init.Prescaler = 72 - 1; // 72Mhz -> 1Mhz
     TIM2_Handle.Init.CounterMode = TIM_COUNTERMODE_UP;
-    TIM2_Handle.Init.Period = 1000 - 1; /*1000 hz*/
+    TIM2_Handle.Init.Period = 100000 - 1; /*1000 hz*/
     TIM2_Handle.Init.ClockDivision = TIM_CLOCKDIVISION_DIV1;
     TIM2_Handle.Init.AutoReloadPreload = TIM_AUTORELOAD_PRELOAD_DISABLE;
     if (HAL_TIM_OC_Init(&TIM2_Handle) != HAL_OK)
@@ -154,6 +158,8 @@ void ADC_Charging_Init(void)
 #elif BOARD_YARDFORCE500_VARIANT_B
 	__HAL_RCC_ADC1_CLK_ENABLE();
 	ADC_TypeDef *Charging_ADC = ADC1;
+    
+    __HAL_RCC_GPIOC_CLK_ENABLE();
 #endif
     __HAL_RCC_GPIOA_CLK_ENABLE();
 
@@ -163,14 +169,16 @@ void ADC_Charging_Init(void)
     PA2     ------> Charge Voltage
     PA3     ------> Battery Voltage
     PA7     ------> Charger Voltage
+    PC2     ------>  Battery NTC
     PC3     ------>  Blade NTC
     */
     GPIO_InitStruct.Pin = GPIO_PIN_1 | GPIO_PIN_2 | GPIO_PIN_3 | GPIO_PIN_7;
     GPIO_InitStruct.Mode = GPIO_MODE_ANALOG;
     HAL_GPIO_Init(GPIOA, &GPIO_InitStruct);
 
-    GPIO_InitStruct.Pin = GPIO_PIN_3;
+    GPIO_InitStruct.Pin = GPIO_PIN_2 | GPIO_PIN_3;
     GPIO_InitStruct.Mode = GPIO_MODE_ANALOG;
+    
     HAL_GPIO_Init(GPIOC, &GPIO_InitStruct);
 
     /* USER CODE BEGIN ADC1_Init 0 */
@@ -309,14 +317,24 @@ void ADC_input(void)
     current = current_without_offset - charge_current_offset.f;
 
     /*blade motor temperature calculation */
-    l_fTmp = (adc_u16Input_NTC/4095.0f)*3.3f;
-    ntc_voltage = 0.5*l_fTmp + 0.5*ntc_voltage;
+    l_fTmp = (adc_u16BladeNTC/4095.0f)*3.3f;
+    blade_ntc_voltage = 0.5*l_fTmp + 0.5*blade_ntc_voltage;
 
     /*calculation for NTC temperature*/
-    l_fTmp = ntc_voltage * 10000;               //Resistance of RT
+    l_fTmp = blade_ntc_voltage * 10000;               //Resistance of RT
     l_fTmp = log(l_fTmp / f_RTO);
     l_fTmp = (1 / ((l_fTmp / beta) + (1 / (273.15+25)))); //Temperature from thermistor
     blade_temperature = l_fTmp - 273.15;                 //Conversion to Celsius  
+
+    /*battery motor temperature calculation */
+    l_fTmp = (adc_u16BatteryNTC/4095.0f)*3.3f;
+    battery_ntc_voltage = 0.5*l_fTmp + 0.5*battery_ntc_voltage;
+
+    /*calculation for NTC temperature*/
+    l_fTmp = battery_ntc_voltage * 10000;               //Resistance of RT
+    l_fTmp = log(l_fTmp / f_RTO);
+    l_fTmp = (1 / ((l_fTmp / beta) + (1 / (273.15+25)))); //Temperature from thermistor
+    battery_temperature = l_fTmp - 273.15;                 //Conversion to Celsius  
 
     /* Input voltage from the external supply*/
     l_fTmp = (adc_u16ChargerInputVoltage / 4095.0f) * 3.3f * (32 / 2);
@@ -324,6 +342,7 @@ void ADC_input(void)
 
 }
 
+uint64_t ovrCount = 0;
 void HAL_ADC_ConvCpltCallback(ADC_HandleTypeDef *hadc)
 {
     if (hadc == &ADC_Handle)
@@ -333,6 +352,10 @@ void HAL_ADC_ConvCpltCallback(ADC_HandleTypeDef *hadc)
 
     if (hadc == &ADC_Charging_Handle)
     {
+        if (__HAL_ADC_GET_FLAG(hadc, ADC_FLAG_OVR))
+        {
+            ovrCount++;
+        }
 #ifdef BOARD_YARDFORCE500_VARIANT_ORIG
         uint16_t l_u16Rawdata = ADC_Charging_Handle.Instance->DR;
 
@@ -354,8 +377,13 @@ void HAL_ADC_ConvCpltCallback(ADC_HandleTypeDef *hadc)
             adc_u16ChargerInputVoltage = l_u16Rawdata;
             break;
 
-        case ADC_CHARGING_CHANNEL_NTC:
-            adc_u16Input_NTC = l_u16Rawdata;
+        case ADC_CHARGING_CHANNEL_BLADE_NTC:
+            adc_u16BladeNTC = l_u16Rawdata;
+
+            break;
+
+        case ADC_CHARGING_CHANNEL_BATTERY_NTC:
+            adc_u16BatteryNTC = l_u16Rawdata;
 
             break;
 
@@ -377,7 +405,8 @@ void HAL_ADC_ConvCpltCallback(ADC_HandleTypeDef *hadc)
         adc_u16Current              = adc_inputDmaBuf[ADC_CHARGING_CHANNEL_CURRENT];
         adc_u16ChargerVoltage       = adc_inputDmaBuf[ADC_CHARGING_CHANNEL_CHARGEVOLTAGE];
         adc_u16ChargerInputVoltage  = adc_inputDmaBuf[ADC_CHARGING_CHANNEL_CHARGERINPUTVOLTAGE];
-        adc_u16Input_NTC            = adc_inputDmaBuf[ADC_CHARGING_CHANNEL_NTC];
+        adc_u16BladeNTC             = adc_inputDmaBuf[ADC_CHARGING_CHANNEL_BLADE_NTC];
+        adc_u16BatteryNTC           = adc_inputDmaBuf[ADC_CHARGING_CHANNEL_BATTERY_NTC];
 
 
     HAL_ADC_Start_DMA(&ADC_Charging_Handle,(uint32_t*)&adc_inputDmaBuf[0],ADC_CHARGING_CHANNEL_MAX);
@@ -446,8 +475,18 @@ void adc_charging_SetChannel(ADC_Charging_channelSelection_e channel)
         }
         break;
 
-    case ADC_CHARGING_CHANNEL_NTC:
-        sConfig.Channel = ADC_CHANNEL_13; // PC2
+    case ADC_CHARGING_CHANNEL_BATTERY_NTC:
+        sConfig.Channel = ADC_CHANNEL_12; // PC2
+        sConfig.Rank = rank;
+        sConfig.SamplingTime = adc_SampleTime;
+        if (HAL_ADC_ConfigChannel(&ADC_Charging_Handle, &sConfig) != HAL_OK)
+        {
+            Error_Handler();
+        }
+        break;
+
+    case ADC_CHARGING_CHANNEL_BLADE_NTC:
+        sConfig.Channel = ADC_CHANNEL_13; // PC3
         sConfig.Rank = rank;
         sConfig.SamplingTime = adc_SampleTime;
         if (HAL_ADC_ConfigChannel(&ADC_Charging_Handle, &sConfig) != HAL_OK)
